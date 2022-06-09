@@ -1,0 +1,5 @@
+make --dry-run --keep-going --print-directory
+make: Entering directory `/Users/cuong.tran/sdl2-starter'
+g++ -std=c++11 -Wall -O0 -g -lsdl2 -Iinclude -L/opt/homebrew/Cellar/sdl2/2.0.22/lib -L/opt/homebrew/Cellar/sdl2_image/2.0.5/lib src/main.cpp -o build/debug/play
+make: Leaving directory `/Users/cuong.tran/sdl2-starter'
+ 
