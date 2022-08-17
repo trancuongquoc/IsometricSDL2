@@ -1,8 +1,8 @@
 #ifndef __RENDERER_H
 #define __RENDERER_H
 
-#define WINDOW_HEIGHT   1200
-#define WINDOW_WIDTH     700
+#define WINDOW_WIDTH     1200
+#define WINDOW_HEIGHT     700
 
 void initRenderer(char *windowCaption);
 SDL_Renderer *getRenderer();
