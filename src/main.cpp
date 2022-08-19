@@ -1,33 +1,32 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "initclose.h"
 #include "renderer.h"
 #include "texture.h"
 #include "isoEngine.h"
 
-#define NUM_ISOMETRIC_TILES 5
-#define MAP_HEIGHT 16
-#define MAP_WIDTH 16
+#define PLAYER_DIR_UP_LEFT      0
+#define PLAYER_DIR_UP           1
+#define PLAYER_DIR_UP_RIGHT     2
+#define PLAYER_DIR_RIGHT        3
+#define PLAYER_DIR_DOWN_RIGHT   4
+#define PLAYER_DIR_DOWN         5
+#define PLAYER_DIR_DOWN_LEFT    6
+#define PLAYER_DIR_LEFT         7
 
-int worldTest[MAP_HEIGHT][MAP_WIDTH] = {
-    {1,1,2,2,2,2,2,2,1,1,2,2,2,2,2,1},
-    {1,1,1,1,2,1,1,2,1,1,2,2,2,2,2,1},
-    {2,1,1,1,2,2,2,2,1,1,2,2,2,2,2,1},
-    {2,1,1,2,2,1,1,2,1,1,2,2,2,2,2,1},
-    {2,1,1,4,4,4,1,2,1,1,2,2,2,2,4,1},
-    {2,1,1,4,4,4,1,2,1,1,2,2,2,2,2,1},
-    {2,1,1,4,4,4,1,2,1,1,2,2,4,2,2,1},
-    {2,2,2,4,4,4,2,1,2,3,3,3,4,2,2,1},
-    {1,1,2,2,2,2,2,3,4,3,3,3,4,2,2,2},
-    {1,1,1,1,2,1,1,2,1,3,3,3,2,2,2,3},
-    {2,1,1,1,2,2,2,2,1,1,2,2,2,2,2,1},
-    {2,1,1,2,2,1,1,2,1,1,3,2,2,2,4,4},
-    {2,1,1,4,2,1,1,2,1,1,3,2,2,2,2,4},
-    {2,1,1,1,2,1,1,2,1,1,3,3,3,3,3,4},
-    {2,1,1,1,1,1,1,2,1,1,2,2,2,2,4,4},
-    {2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,1}
-};
+#define NUM_ISOMETRIC_TILES 5
+#define NUM_CHARACTER_SPRITES 8
+
+#define MAP_HEIGHT 64
+#define MAP_WIDTH 64
+
+#define GAME_MODE_OVERVIEW          0
+#define GAME_MODE_OBJECT_FOCUS      1
+#define NUM_GAME_MODES              2
+
+int worldTest[MAP_HEIGHT][MAP_WIDTH];
 
 typedef struct gameT
 {
@@ -36,15 +35,23 @@ typedef struct gameT
     SDL_Rect mouseRect;
     point2DT mousePoint;
     point2DT mapScroll2Dpos;
-    int mapScrollSpeed;
     isoEngineT isoEngine;
     int lastTileClicked;
     float zoomLevel;
+    point2DT tilePos;
+    point2DT charPoint;
+    int charDirection;
+    int gameMode;
 }gameT;
 
 gameT game;
 textureT tilesTex;
 SDL_Rect tilesRects[NUM_ISOMETRIC_TILES];
+
+textureT characterTex;
+SDL_Rect charRects[NUM_CHARACTER_SPRITES];
+
+void scrollMapWithMouse(isoEngineT *isoEngine);
 
 void initTileClip()
 {
@@ -55,8 +62,21 @@ void initTileClip()
 
     for (i = 0; i < NUM_ISOMETRIC_TILES; ++i)
     {
-        setupRect(&tilesRects[i], x,y,64,80);
+        setupRect(&tilesRects[i],x,y,64,80);
         x+=64;
+    }   
+}
+
+void initCharClip()
+{
+    int x = 0, y = 0;
+    int i;
+    textureInit(&characterTex, 0, 0, 0, NULL, NULL, SDL_FLIP_NONE);
+
+    for (i = 0; i < NUM_CHARACTER_SPRITES; ++i)
+    {
+        setupRect(&charRects[i], x, y, 70, 102);
+        x += 70;
     }
     
 }
@@ -67,27 +87,72 @@ void writeCoords()
             (int)game.mapScroll2Dpos.x,(int)game.mapScroll2Dpos.y,(int)game.isoEngine.scrollX,(int)game.isoEngine.scrollY);
 }
 
+void generateMap()
+{
+    int x,y;
+    int paintTile=0;
+    for(y=0;y<MAP_HEIGHT;y+=2)
+    {
+        for(x=0;x<MAP_HEIGHT;x+=2)
+        {
+            worldTest[y][x] = 1;
+            worldTest[y+1][x] = 1;
+            worldTest[y][x+1] = 1;
+            worldTest[y+1][x+1] = 1;
+            paintTile = rand()%10;
+
+            if(paintTile>8)
+            {
+                if(y<MAP_HEIGHT-4 && x<MAP_WIDTH-4){
+                    worldTest[y][x] = 4;
+                    worldTest[y+1][x] = 4;
+                    worldTest[y][x+1] = 4;
+                    worldTest[y+1][x+1] = 4;
+                }
+            }
+            if(paintTile==7){
+                if(y<MAP_HEIGHT-4 && x<MAP_WIDTH-4){
+                    worldTest[y][x] = 3;
+                    worldTest[y+1][x] = 3;
+                    worldTest[y][x+1] = 3;
+                    worldTest[y+1][x+1] = 3;
+                }
+            }
+        }
+    }
+}
+
 void init()
 {
     int tileSize = 32;
     game.loopDone = 0;
     initTileClip();
+    initCharClip();
     InitIsoEngine(&game.isoEngine, tileSize);
     IsoEngineSetMapSize(&game.isoEngine, 16, 16);
-
-    game.isoEngine.scrollX = 77;
-    game.isoEngine.scrollY = -77;
-    game.mapScroll2Dpos.x = -77;
+    generateMap();
+    game.isoEngine.scrollX = 0;
+    game.isoEngine.scrollY = 0;
+    game.mapScroll2Dpos.x = 0;
     game.mapScroll2Dpos.y = 0;
-    game.mapScrollSpeed = 3;
     game.lastTileClicked = -1;
-    game.zoomLevel = 1.25;
-
+    game.zoomLevel = 1.0;
+    game.charPoint.x = 0;
+    game.charPoint.y = 0;
+    game.charDirection = PLAYER_DIR_DOWN;
+    game.gameMode = GAME_MODE_OVERVIEW;
+    
     if (loadTexture(&tilesTex, "data/isotiles.png") == 0)
     {
         fprintf(stderr, "Error, could not load texture: data/isotiles.png\n");
         exit(1);
-    }    
+    }
+
+    if (loadTexture(&characterTex, "data/character.png") == 0)
+    {
+        fprintf(stderr, "Error, could not load texture: data/character.png\n");
+        exit(1);
+    }
 }
 
 void drawIsoMouse()
@@ -113,10 +178,43 @@ void drawIsoMouse()
 void drawIsoMap(isoEngineT *isoEngine)
 {
     int i,j;
-    int tile;
-
+    int x,y;
+    int tile = 4;
     point2DT point;
 
+    int startX = -3/game.zoomLevel + (game.mapScroll2Dpos.x/game.zoomLevel/TILESIZE) * 2;
+    int startY = -20/game.zoomLevel + abs((game.mapScroll2Dpos.y/game.zoomLevel/TILESIZE)) * 2;
+
+    int numTilesInWidth = (WINDOW_WIDTH / TILESIZE) / game.zoomLevel;
+    int numTilesInHeight = ((WINDOW_HEIGHT / TILESIZE) / game.zoomLevel) * 2;
+
+    for (i = startY; i < startY + numTilesInHeight + 26; ++i)
+    {
+        for (j = startX; j < startX + numTilesInWidth + 5; ++j)
+        {   
+            // only draw when both x & y are equal, so we skip this
+            if ((j&1) != (i&1))
+            {
+                continue;
+            }
+            
+            x = (i + j) / 2;
+            y = (i - j) / 2;
+
+            if (x >= 0 && y >= 0 && x < MAP_WIDTH && y < MAP_HEIGHT)
+            {
+                tile = worldTest[y][x];
+                point.x = ((x * game.zoomLevel * TILESIZE) + isoEngine->scrollX);
+                point.y = ((y * game.zoomLevel * TILESIZE) + isoEngine->scrollY);
+                Convert2dToIso(&point); 
+                textureRenderXYClipScale(&tilesTex,point.x,point.y,&tilesRects[tile],game.zoomLevel);
+            }
+            
+        }
+        
+    }
+    
+    /*
     //loop through the map
     for(i=0;i<isoEngine->mapHeight;++i)
     {
@@ -132,6 +230,7 @@ void drawIsoMap(isoEngineT *isoEngine)
             textureRenderXYClipScale(&tilesTex,point.x,point.y,&tilesRects[tile],game.zoomLevel);
         }
     }
+    */
 }
 
 void getMouseTilePos(isoEngineT *isoEngine, point2DT *mouseTilePos)
@@ -191,6 +290,75 @@ void getMouseTileClick(isoEngineT *isoEngine)
     }
 }
 
+void CenterMapToTileUnderMouse(isoEngineT *isoEngine)
+{
+    point2DT mouseIsoTilePos;
+
+    //calculate the offset of the center of the screen
+    int offsetX = WINDOW_WIDTH/game.zoomLevel/2;
+    int offsetY = WINDOW_HEIGHT/game.zoomLevel/2;
+
+    //get the tile under the mouse
+    getMouseTilePos(isoEngine,&mouseIsoTilePos);
+
+    game.tilePos.x = mouseIsoTilePos.x*TILESIZE;
+    game.tilePos.y = mouseIsoTilePos.y*TILESIZE;
+
+    //convert to isometric coordinates
+    Convert2dToIso(&mouseIsoTilePos);
+
+    //move the x position
+    game.mapScroll2Dpos.x = ((mouseIsoTilePos.x*TILESIZE)*game.zoomLevel)/2;
+    game.mapScroll2Dpos.x -= (offsetX*game.zoomLevel)/2;
+
+    //move the y position
+    game.mapScroll2Dpos.y = -((mouseIsoTilePos.y*TILESIZE)*game.zoomLevel);
+    game.mapScroll2Dpos.y += offsetY*game.zoomLevel;
+
+    //convert the map 2d camera to isometric camera
+    convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+}
+
+void CenterMap(isoEngineT *isoEngine,point2DT *objectPoint)
+{
+    point2DT pointPos = *objectPoint;
+
+    //calculate the offset of the center of the screen
+    int offsetX = WINDOW_WIDTH/game.zoomLevel/2;
+    int offsetY = WINDOW_HEIGHT/game.zoomLevel/2;
+
+    game.tilePos.x = objectPoint->x;
+    game.tilePos.y = objectPoint->y;
+
+    Convert2dToIso(&pointPos);
+
+    game.mapScroll2Dpos.x = floor((pointPos.x)*game.zoomLevel)/2;
+    game.mapScroll2Dpos.x -= offsetX*game.zoomLevel/2;
+
+    if(game.gameMode == GAME_MODE_OBJECT_FOCUS){
+        game.mapScroll2Dpos.x +=45*game.zoomLevel/2;
+    }
+
+    game.mapScroll2Dpos.y = -floor((pointPos.y)*game.zoomLevel);
+    game.mapScroll2Dpos.y += offsetY*game.zoomLevel;
+
+    if(game.gameMode == GAME_MODE_OBJECT_FOCUS){
+        game.mapScroll2Dpos.y -= 51*game.zoomLevel;
+    }
+
+    convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+}
+
+void drawCharacter(isoEngineT *isoEngine)
+{
+    point2DT point;
+    point.x = (int)(game.charPoint.x * game.zoomLevel) + isoEngine->scrollX;
+    point.y = (int)(game.charPoint.y * game.zoomLevel) + isoEngine->scrollY;
+    Convert2dToIso(&point);
+
+    textureRenderXYClipScale(&characterTex, point.x, point.y, &charRects[game.charDirection], game.zoomLevel);
+}
+
 void draw()
 {
     SDL_SetRenderDrawColor(getRenderer(), 0x3b, 0x3b, 0x3b, 0x00);
@@ -198,6 +366,7 @@ void draw()
     // textureRenderXYClip(&tilesTex, game.mouseRect.x, game.mouseRect.y, &tilesRects[0]);
 
     drawIsoMap(&game.isoEngine);
+    drawCharacter(&game.isoEngine);
     drawIsoMouse();
 
     if(game.lastTileClicked != -1) {
@@ -216,6 +385,13 @@ void update()
     SDL_GetMouseState(&game.mouseRect.x, &game.mouseRect.y);
     game.mouseRect.x = game.mouseRect.x/game.zoomLevel;
     game.mouseRect.y = game.mouseRect.y/game.zoomLevel;
+
+    if (game.gameMode == GAME_MODE_OBJECT_FOCUS)
+    {
+        CenterMap(&game.isoEngine, &game.charPoint);
+    } else if (game.gameMode == GAME_MODE_OVERVIEW) {
+        scrollMapWithMouse(&game.isoEngine);
+    }
 }
 
 void updateInput()
@@ -237,7 +413,14 @@ void updateInput()
             case SDLK_ESCAPE:
                 game.loopDone=1;
                 break;
-            
+            case SDLK_SPACE:
+                game.gameMode++;
+                if (game.gameMode >= NUM_GAME_MODES)
+                {
+                    game.gameMode = GAME_MODE_OVERVIEW;
+                }
+                
+                break;
             default:
                 break;
             }
@@ -246,7 +429,14 @@ void updateInput()
         case SDL_MOUSEBUTTONDOWN:
             if(game.event.button.button == SDL_BUTTON_LEFT)
             {
-                getMouseTileClick(&game.isoEngine);
+                    if (game.gameMode == GAME_MODE_OVERVIEW)
+                    {
+                        CenterMapToTileUnderMouse(&game.isoEngine);
+                        
+                    } else if (game.gameMode == GAME_MODE_OBJECT_FOCUS)
+                    {
+                        getMouseTileClick(&game.isoEngine);
+                    }  
             }
             break;
 
@@ -257,12 +447,27 @@ void updateInput()
                 if (game.zoomLevel < 3.0)
                 {
                     game.zoomLevel += 0.25;
+
+                    if (game.gameMode == GAME_MODE_OVERVIEW)
+                    {
+                        CenterMap(&game.isoEngine, &game.tilePos);
+                    } else if (game.gameMode == GAME_MODE_OBJECT_FOCUS)
+                    {
+                        CenterMap(&game.isoEngine, &game.charPoint);
+                    }                    
                 }
             //if the user scrolled the mouse wheel up
             } else {
                 if (game.zoomLevel > 1.0)
                 {
                     game.zoomLevel -= 0.25;
+                    if (game.gameMode == GAME_MODE_OVERVIEW)
+                    {
+                        CenterMap(&game.isoEngine, &game.tilePos);
+                    } else if (game.gameMode == GAME_MODE_OBJECT_FOCUS)
+                    {
+                        CenterMap(&game.isoEngine, &game.charPoint);
+                    }  
                 }
                 
             }
@@ -273,41 +478,101 @@ void updateInput()
         }
     }
 
+    if (keystate[SDL_SCANCODE_S] && !keystate[SDL_SCANCODE_D] && !keystate[SDL_SCANCODE_A] && !keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x += 5;
+        game.charPoint.y += 5;
+        game.charDirection = PLAYER_DIR_DOWN;
+    }
+    else if (!keystate[SDL_SCANCODE_S] && !keystate[SDL_SCANCODE_D] && !keystate[SDL_SCANCODE_A] && keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x -= 5;
+        game.charPoint.y -= 5;
+        game.charDirection = PLAYER_DIR_UP;
+    }
+    else if (!keystate[SDL_SCANCODE_S] && keystate[SDL_SCANCODE_D] && !keystate[SDL_SCANCODE_A] && keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.y -= 5;
+        game.charDirection = PLAYER_DIR_UP_RIGHT;
+    }
+    else if (!keystate[SDL_SCANCODE_S] && !keystate[SDL_SCANCODE_D] && keystate[SDL_SCANCODE_A] && keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x -= 5;
+        game.charDirection = PLAYER_DIR_UP_LEFT;
+    }
+    else if (!keystate[SDL_SCANCODE_S] && keystate[SDL_SCANCODE_D] && !keystate[SDL_SCANCODE_A] && !keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x += 5;
+        game.charPoint.y -= 5;
+        game.charDirection = PLAYER_DIR_RIGHT;
+    }
+    else if (!keystate[SDL_SCANCODE_S] && !keystate[SDL_SCANCODE_D] && keystate[SDL_SCANCODE_A] && !keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x -= 5;
+        game.charPoint.y += 5;
+        game.charDirection = PLAYER_DIR_LEFT;
+    }
+    else if (keystate[SDL_SCANCODE_S] && !keystate[SDL_SCANCODE_D] && keystate[SDL_SCANCODE_A] && !keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.y += 5;
+        game.charDirection = PLAYER_DIR_DOWN_LEFT;
+    }
+    else if (keystate[SDL_SCANCODE_S] && keystate[SDL_SCANCODE_D] && !keystate[SDL_SCANCODE_A] && !keystate[SDL_SCANCODE_W])
+    {
+        game.charPoint.x += 5;
+        game.charDirection = PLAYER_DIR_DOWN_RIGHT;
+    }
+/*
     if (keystate[SDL_SCANCODE_W])
     {
         game.mapScroll2Dpos.y += game.mapScrollSpeed;
 
-        if (game.mapScroll2Dpos.y > 0)
-        {
-            game.mapScroll2Dpos.y = 0;
-            game.isoEngine.scrollX -= game.mapScrollSpeed;
-            game.isoEngine.scrollY -= game.mapScrollSpeed;
-        }
         convertCartesianCameraToIsometric(&game.isoEngine, &game.mapScroll2Dpos);
-        writeCoords();
     }
     if (keystate[SDL_SCANCODE_A])
     {
         game.mapScroll2Dpos.x -= game.mapScrollSpeed;
         
         convertCartesianCameraToIsometric(&game.isoEngine, &game.mapScroll2Dpos);
-        writeCoords();
     }
     if (keystate[SDL_SCANCODE_S])
     {
         game.mapScroll2Dpos.y -= game.mapScrollSpeed;
 
         convertCartesianCameraToIsometric(&game.isoEngine, &game.mapScroll2Dpos);
-        writeCoords();
     }
     if (keystate[SDL_SCANCODE_D])
     {
         game.mapScroll2Dpos.x += game.mapScrollSpeed;
 
         convertCartesianCameraToIsometric(&game.isoEngine, &game.mapScroll2Dpos);
-        writeCoords();
     }
-    
+*/
+}
+
+void scrollMapWithMouse(isoEngineT *isoEngine)
+{
+    int zoomEdgeX = (WINDOW_WIDTH*game.zoomLevel)-(WINDOW_WIDTH);
+    int zoomEdgeY = (WINDOW_HEIGHT*game.zoomLevel)-(WINDOW_HEIGHT);
+
+    if(game.mouseRect.x<2){
+        game.mapScroll2Dpos.x-= isoEngine->mapScrollSpeed;
+        convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+    }
+    if(game.mouseRect.x>WINDOW_WIDTH-(zoomEdgeX/game.zoomLevel)-2){
+        game.mapScroll2Dpos.x+= isoEngine->mapScrollSpeed;
+        convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+
+    }
+    if(game.mouseRect.y<2){
+        game.mapScroll2Dpos.y+= isoEngine->mapScrollSpeed;
+        convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+
+    }
+    if(game.mouseRect.y>WINDOW_HEIGHT-(zoomEdgeY/game.zoomLevel)-2){
+        game.mapScroll2Dpos.y-= isoEngine->mapScrollSpeed;
+        convertCartesianCameraToIsometric(isoEngine,&game.mapScroll2Dpos);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -316,13 +581,16 @@ int main(int argc, char *argv[])
     initSDL((char*)"isometric");
     init();
 
+    SDL_ShowCursor(0);
+    SDL_SetWindowGrab(getWindow(), SDL_TRUE);
+    SDL_WarpMouseInWindow(getWindow(), WINDOW_WIDTH/2, WINDOW_HEIGHT/2);
+
     while (!game.loopDone)
     {
         update();
         updateInput();
         draw();
     }
-    
 
     closeDownSDL();
     return 0;

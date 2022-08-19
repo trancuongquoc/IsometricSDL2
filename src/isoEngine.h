@@ -10,6 +10,7 @@ typedef struct isoEngineT
     int scrollY;
     int mapHeight;
     int mapWidth;
+    int mapScrollSpeed;
 }isoEngineT;
 
 typedef struct point2DT

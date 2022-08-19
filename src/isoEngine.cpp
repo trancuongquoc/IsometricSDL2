@@ -30,6 +30,8 @@ void InitIsoEngine(isoEngineT *isoEngine, int tileSizeInPixels)
     isoEngine->mapWidth = 0;
     isoEngine->scrollX = 0;
     isoEngine->scrollY = 0;
+    isoEngine->mapScrollSpeed = 6;
+
 }
 
 void IsoEngineSetMapSize(isoEngineT *isoEngine,int width, int height)
